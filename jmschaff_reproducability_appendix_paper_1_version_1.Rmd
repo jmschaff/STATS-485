@@ -1,0 +1,281 @@
+---
+title: "Paper 1 - Reproducibility Matrix"
+author: "John Michael Schaffer II"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Prerequisites
+The following code is required in order to carry out the computations of this paper.
+```{r}
+# Load Package Dependencies
+library(PropCIs) # Clopper-Pearson Confidence Interval Method
+library(ggplot2) # Visualization Tool
+library(knitr) # Used to Create Tables
+library(grid)
+library(dplyr)
+```
+
+```{r}
+# Read mobility0.csv and store it as dataframe variable named mobility
+mobility = read.csv("http://dept.stat.lsa.umich.edu/~bbh/s485/data/mobility0.csv")
+
+# Set rownames
+row.names(mobility) <- mobility$zone
+```
+*The data used in this analysis can be found at link provided above in the chunk of code.
+  
+## Overview
+The computations in this document explore upward economic mobility of individuals within the four U.S. Census Bureau regions: Midwest, Northeast, South, and West. The following code consists of statistical analysis on each of the 40 individual zones and four U.S Census Bureau regions, which includes the calculation for Clopper-Pearson confidence intervals. In order to carry out this analysis, various data structures and functions were used to structure our data and compute effectively in addition to the generation of visuals and figures to represent data. 
+   
+## R Code
+### Confidence Intervals and Statistical Analysis
+To begin the investivation of upward mobility in each zone, a new column vector named k is added to our mobility data frame.  The *k* column variable, represents the # of individuals that achieved upward mobility in each zone and is calculated with the following equation:
+$$k = n * phat$$
+This is shown in code below:
+```{r k}
+# Column vector k is created by multiplying each row by n.lowstart by p.upmover
+k = mobility$n.lowstart * mobility$p.upmover
+
+# Next, we will add this vector to our mobility dataframe to associate each zone with the # of individuals that achieved upward mobility.
+mobility = data.frame(mobility, k)
+```
+
+By utilizing the modified mobility data frame, two column vectors that contain the lower and upper bounds of the confidence interval, denoted as *l.conf_i* and *u.conf_i* respectively, are constructed.  
+  
+#### Clopper Pearson Confidence Interval - PropCIs Package Method
+
+The code below uses the function exactci(...) from the PropCIs package to create the lower and upper bounds of the Clopper-Pearson confidence intervals for each zone:
+
+```{r PropCIs}
+conf.int = c()
+l.conf_i_PropCIs = c()
+u.conf_i_PropCIs = c()
+
+for (row in 1:nrow(mobility))
+{
+  conf.int = c(conf.int, exactci(mobility[row,"k"], mobility[row,"n.lowstart"], conf.level = 0.95))
+}
+
+for (i in 1:40){
+  l.conf_i_PropCIs = c(l.conf_i_PropCIs, conf.int[[i]][1])
+  u.conf_i_PropCIs = c(u.conf_i_PropCIs, conf.int[[i]][2])
+}
+
+# Now that we have two column vectors of the lower and upper bounds of the interval, we initialize a new data.frame instance and include these two column vectors
+mobility = data.frame(mobility, l.conf_i_PropCIs, u.conf_i_PropCIs)
+
+```
+
+#### Clopper Pearson Confidence Interval - Quantile of Beta Method
+
+In order to test the validity of the packages calculations the values for the lower and upper bounds of each zones confidence interval are calculated through the Clopper-Pearson equation, which is:
+
+$$ClopperPearson~CI = [{alpha/2 * quantile~of~Beta(n*phat, n*(1-phat) + 1)}, {(1 - alpha/2 * quantile~of~Beta(n*phat + 1, n*(1-phat))}]$$
+
+In base R, the qbeta(...) function utilizes the above equation to calculate confidence intervals and is shown below:
+
+
+```{r Beta Method}
+# First we set out alpha value to indicate a 95% confidence interval
+alpha = rep(0.05, length(mobility$zone))
+
+# Next we calculate the lower and upper CP CI using the qbeta(...) function which utilizes the equation shown above.
+
+l.conf_i_calc = qbeta(alpha/2,mobility$k, mobility$n.lowstart - mobility$k + 1)
+
+u.conf_i_calc = qbeta(1-alpha/2, mobility$k + 1, mobility$n.lowstart - mobility$k)
+
+
+# Now that we have two column vectors of the lower and upper bounds of the interval, we initialize a new data.frame instance and include these two column vectors
+mobility = data.frame(mobility, l.conf_i_calc, u.conf_i_calc)
+```
+
+By viewing the mobility data matrix columns, we can see that both of the CIs are the same for the package calculation and qbeta(...) calculation:
+
+```{r}
+head(mobility[,9:12])
+```
+
+#### Formulation of Region Data
+
+Furthering our analysis, we observe the differences of the four commuting zones.
+
+```{r}
+# Create a data matrix for each commuting zone: west, midwest, northeast, south
+midwest = subset(mobility, region %in% "midwest")
+northeast = subset(mobility, region %in% "northeast")
+south = subset(mobility, region %in% "south")
+west = subset(mobility, region %in% "west")
+```
+
+Now that we have created subsets of zones with respect to their specific region, we can create variables for *n* (# of indviduals with a lowstart), *phat* (observed probability of upward mobility), and *k* (# of individuals that achieved upward mobility).  After computing these values for each region, we will generate a mobility dataframe for regions.
+
+```{r}
+# Initialize regionMobility dataframe variable
+regionsName = c("Midwest", "Northeast", "South", "West")
+regionMobility = data.frame(matrix(nrow = 4, ncol = 3))
+rownames(regionMobility) = regionsName
+colnames(regionMobility) = c("n", "phat", "k")
+
+# Next, we will create a list that contains our region dataframes and run a for loop to calculate n, phat, and k for each region.
+regions = list(midwest, northeast, south, west)
+i = 1
+for (region in regions){
+  regionMobility[i,] = list(sum(region$n.lowstart), sum(region$k)/sum(region$n.lowstart), sum(region$k))
+  i = i + 1
+}
+
+regionMobility = data.frame(regionMobility, regionsName)
+```
+
+Next, we generate Clopper-Pearson confidence intervals using the Beta method:
+
+```{r}
+# First we set out alpha value to indicate a 95% confidence interval
+alpha = rep(0.05, 4)
+
+# Next we calculate the lower and upper CP CI using the qbeta(...) function which utilizes the equation shown above.
+
+l.conf_i_calc = qbeta(alpha/2,regionMobility$k, regionMobility$n - regionMobility$k + 1)
+
+u.conf_i_calc = qbeta(1-alpha/2, regionMobility$k + 1, regionMobility$n - regionMobility$k)
+
+
+# Now that we have two column vectors of the lower and upper bounds of the interval, we initialize a new data.frame instance and include these two column vectors
+regionMobility = data.frame(regionMobility, l.conf_i_calc, u.conf_i_calc)
+```
+
+### Figures and Visualizations
+
+This code block contains a graph of all zones, their p.upmover value, and their confidence interval bounds at the hash marks region:
+``` {r , eval = FALSE}
+
+### midwest
+conf_i_length = vector("numeric")
+conf_i_length = midwest$u.conf_i_calc - midwest$l.conf_i_calc
+midwest = data.frame(midwest, conf_i_length)
+midwest <- midwest[order(midwest$p.upmover,midwest$conf_i_length),] 
+midwest$zone <- factor(midwest$zone, levels = midwest$zone[order(midwest$conf_i_length)])
+
+### northeast
+conf_i_length = vector("numeric")
+conf_i_length = northeast$u.conf_i_calc - northeast$l.conf_i_calc
+northeast = data.frame(northeast, conf_i_length)
+northeast <- northeast[order(northeast$conf_i_length),] 
+northeast$zone <- factor(northeast$zone, levels = northeast$zone[order(northeast$conf_i_length)])
+
+### south
+conf_i_length = vector("numeric")
+conf_i_length = south$u.conf_i_calc - south$l.conf_i_calc
+south = data.frame(south, conf_i_length)
+south <- south[order(south$conf_i_length),]
+south$zone <- factor(south$zone, levels = south$zone[order(south$conf_i_length)])
+
+### west
+conf_i_length = vector("numeric")
+conf_i_length = west$u.conf_i_calc - west$l.conf_i_calc
+west = data.frame(west, conf_i_length)
+west <- west[order(west$conf_i_length),]
+west$zone <- factor(west$zone, levels = west$zone[order(west$conf_i_length)])
+
+### mobility
+conf_i_length = vector("numeric")
+conf_i_length = mobility$u.conf_i_calc - mobility$l.conf_i_calc
+mobility = data.frame(mobility, conf_i_length)
+mobility <- mobility[order(mobility$region,mobility$p.upmover, mobility$conf_i_length),]
+mobility$zone <- factor(mobility$zone, levels = mobility$zone[order(mobility$conf_i_length)])
+mobility$region <- factor(mobility$region, levels = c("midwest", "northeast", "south", "west"))
+
+```
+
+```{r}
+# Midwest Plot
+midwestPlot <- ggplot(data=midwest, aes(x= reorder(zone, conf_i_length), y=p.upmover, group = 1)) + geom_point(color = "green4") + labs(x = "Midwest" , y = "Probability of Upward Mobility") + coord_flip() + geom_errorbar(aes(ymin = midwest$l.conf_i_calc, ymax = midwest$u.conf_i_calc), width = 0.2, color = "green4") + theme(axis.text.y = element_text(size = 7, color = "green4")) + theme(plot.margin = (unit(c(.001, .001, .001, .001), "cm"))) + theme(aspect.ratio=.2) +  theme(axis.title.x=element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank()) + theme(axis.title = element_text(color="green4")) + scale_y_continuous(limits = c(0,0.405), breaks = c(0,0.1,0.2,0.3,0.4))
+
+midwestPlot
+
+# Northeast Plot
+northeastPlot <- ggplot(data=northeast, aes(x= reorder(zone, conf_i_length), y=p.upmover, group = 1)) + geom_point(color = "red4") + labs(x = "Northeast" , y = "Probability of Upward Mobility") + coord_flip() + geom_errorbar(aes(ymin = northeast$l.conf_i_calc, ymax = northeast$u.conf_i_calc), width = 0.2, color = "red4") + theme(axis.text.y = element_text(size = 7, color = "red4")) + theme(plot.margin = (unit(c(.001, .001, .001, .001), "cm"))) +  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + theme(aspect.ratio=.2) + theme(axis.title = element_text(color="red4")) + scale_y_continuous(limits = c(0,0.405), breaks = c(0,0.1,0.2,0.3,0.4))
+
+northeastPlot
+
+# South Plot
+southPlot <- ggplot(data=south, aes(x= reorder(zone, conf_i_length), y=p.upmover, group = 1)) + geom_point(color = "blue4") + labs(x = "South" , y = "Probability of Upward Mobility") + coord_flip() + geom_errorbar(aes(ymin = south$l.conf_i_calc, ymax = south$u.conf_i_calc), width = 0.2, color = "blue4") + theme(axis.text.y = element_text(size = 7, color = "blue4")) + theme(plot.margin = (unit(c(.001, .001, .001, .001), "cm"))) +  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + theme(aspect.ratio=.2) + theme(axis.title = element_text(color="blue4")) + scale_y_continuous(limits = c(0,0.405), breaks = c(0,0.1,0.2,0.3,0.4))
+
+southPlot
+
+# West Plot
+westPlot <- ggplot(data=west, aes(x= reorder(zone, conf_i_length), y=p.upmover, group = 1)) + geom_point(color = "yellow4") + labs(x = "West" , y = "Probability of Upward Mobility") + coord_flip() + geom_errorbar(aes(ymin = west$l.conf_i_calc, ymax = west$u.conf_i_calc), width = 0.2, color = "yellow4") + theme(axis.text.y = element_text(size = 7, color = "yellow4")) + theme(plot.margin = (unit(c(.001, .001, .001, .001), "cm"))) + theme(aspect.ratio=.2) +  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + theme(axis.title = element_text(color="yellow4")) + scale_y_continuous(limits = c(0,0.405), breaks = c(0,0.1,0.2,0.3,0.4))
+
+westPlot
+
+# allPlot <- ggplot(data = mobility, aes(x= order(region), y=p.upmover, group = 1)) +  labs(x = "Zones" , y = "Probability of Upward Mobility") + coord_flip() + geom_point(data = mobility[mobility$region == "midwest",], color = "green4", aes(x=zone,y=p.upmover)) + geom_point(data = mobility[mobility$region == "northeast",], color = "red4", aes(x=zone,y=p.upmover)) + geom_point(data = mobility[mobility$region == "south",], color = "blue4", aes(x=zone, y=p.upmover)) + geom_point(data = mobility[mobility$region == "west",], color = "yellow4", aes(x=zone, y=p.upmover)) + theme(axis.text.y = element_text(size = 7, margin=margin(20,5,20,5,"pt"))) + theme(plot.margin = (unit(c(.001, .01, .001, .01), "cm"))) + + geom_errorbar(aes(ymin = west$l.conf_i_calc, ymax = west$u.conf_i_calc))
+
+allPlot <- ggplot(data = mobility, aes(x= reorder(zone,conf_i_length), y=p.upmover, group = 1)) +  labs(x = "Zones" , y = "Probability of Upward Mobility") + coord_flip() + geom_point(aes(color = region)) + theme(axis.text.y = element_text(size = 7, margin=margin(20,5,20,5,"pt"))) + theme(plot.margin = (unit(c(.001, .01, .001, .01), "cm"))) + geom_errorbar(aes(ymin = mobility$l.conf_i_calc, ymax = mobility$u.conf_i_calc, color = mobility$region)) + 
+  scale_color_manual("Region", values=c("green4", "red4", "yellow4", "blue4"))
+
+allPlot
+
+# grid.newpage()
+# grid.draw(rbind(ggplotGrob(midwestPlot), ggplotGrob(northeastPlot), ggplotGrob(southPlot), ggplotGrob(westPlot), size = "last"))
+
+midwestPlot <- ggplot_gtable(ggplot_build(midwestPlot))
+northeastPlot <- ggplot_gtable(ggplot_build(northeastPlot))
+southPlot <- ggplot_gtable(ggplot_build(southPlot))
+westPlot <- ggplot_gtable(ggplot_build(westPlot))
+
+maxWidth = unit.pmax(midwestPlot$widths[2:3], northeastPlot$widths[2:3],southPlot$widths[2:3],westPlot$widths[2:3])
+
+midwestPlot$widths[2:3] = maxWidth
+northeastPlot$widths[2:3] = maxWidth
+southPlot$widths[2:3] = maxWidth
+westPlot$widths[2:3] = maxWidth
+
+grid.newpage()
+grid.arrange(midwestPlot, westPlot, northeastPlot, southPlot, ncol = 1, left="Zone", bottom="Probability of Upward Mobility")
+```
+
+```{r}
+# Confidence Interval Length
+conf_i_length = vector("numeric")
+conf_i_length = regionMobility$u.conf_i_calc - regionMobility$l.conf_i_calc
+regionMobility = data.frame(regionMobility, conf_i_length)
+regionMobility <- regionMobility[order(regionMobility$conf_i_length),] 
+regionMobility$regionsName <- factor(regionMobility$regionsName, levels = regionMobility$regionsName[order(regionMobility$conf_i_length)])
+
+#Region Plot
+regionMobility$regionsName = c("South", "West", "Northeast", "Midwest")
+
+regionGraph <- ggplot(data=regionMobility, aes(x=reorder(regionsName, conf_i_length), y=phat, group = 1, color = regionsName)) + geom_point() + 
+  labs(x = "Region" , y = "Probability of Upward Mobility") +
+  geom_errorbar(aes(ymin = regionMobility$l.conf_i_calc, ymax = regionMobility$u.conf_i_calc), width = 0.2) +
+  coord_flip() + theme(plot.margin = (unit(c(.001, .01, .001, .01), "cm"))) + scale_y_continuous(limits = c(0.04,0.12), breaks = c(0.04, 0.06,0.08,0.10, 0.12)) + 
+  scale_color_manual("Region",values=c("green4", "red4", "yellow4", "blue4"))
+
+regionGraph
+
+```
+
+This code contains the region table and graph: 
+
+```{r }
+options(digits = 3)
+regionMobility <- regionMobility[order(regionMobility$phat),] 
+regionMobility$regionsName <- factor(regionMobility$regionsName, levels = regionMobility$regionsName[order(regionMobility$phat)])
+regionTbl <- kable(regionMobility[,c("phat","l.conf_i_calc", "u.conf_i_calc")], col.names = c("Probabiliy of Upward Mobility", "Lower Limit", "Upper Limit"))
+print(regionTbl)
+```
+*Note that ggplot code is commented out becuase it does not run in RMarkdown
+
+
+
